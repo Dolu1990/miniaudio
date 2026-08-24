@@ -47373,13 +47373,59 @@ MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, 
     /* Note that the logic below needs to support in-place filtering. That is, it must support the case where pFramesOut and pFramesIn are the same. */
 
     if (pBQ->format == ma_format_f32) {
-        /* */ float* pY = (      float*)pFramesOut;
+        /* */ /*float* pY = (      float*)pFramesOut;
         const float* pX = (const float*)pFramesIn;
 
         for (n = 0; n < frameCount; n += 1) {
             ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(pBQ, pY, pX);
             pY += pBQ->channels;
             pX += pBQ->channels;
+        }*/
+        const float* pX = (const float*)pFramesIn;
+        float* pY = (float*)pFramesOut;
+
+        const ma_uint32 channels = pBQ->channels;
+
+        const float b0 = pBQ->b0.f32;
+        const float b1 = pBQ->b1.f32;
+        const float b2 = pBQ->b2.f32;
+        const float a1 = pBQ->a1.f32;
+        const float a2 = pBQ->a2.f32;
+
+        MA_ASSUME(channels > 0);
+
+        /*
+         * Process one channel across all frames before moving to the
+         * next channel. This keeps r1 and r2 in registers instead of
+         * loading and storing them for every frame.
+         *
+         * Interleaved layout:
+         *
+         *   frame 0: ch0 ch1 ch2 ...
+         *   frame 1: ch0 ch1 ch2 ...
+         */
+        for (ma_uint32 c = 0; c < channels; ++c) {
+            float r1 = pBQ->pR1[c].f32;
+            float r2 = pBQ->pR2[c].f32;
+
+            const float* pChannelIn = pX + c;
+            float* pChannelOut = pY + c;
+
+            for (ma_uint64 n = 0; n < frameCount; ++n) {
+                const float x = *pChannelIn;
+                const float y = b0 * x + r1;
+
+                r1 = b1 * x - a1 * y + r2;
+                r2 = b2 * x - a2 * y;
+
+                *pChannelOut = y;
+
+                pChannelIn += channels;
+                pChannelOut += channels;
+            }
+
+            pBQ->pR1[c].f32 = r1;
+            pBQ->pR2[c].f32 = r2;
         }
     } else if (pBQ->format == ma_format_s16) {
         /* */ ma_int16* pY = (      ma_int16*)pFramesOut;
